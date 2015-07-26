@@ -1,0 +1,125 @@
+---
+title: "Practical Machine Learning Project"
+author: "Andrej Mihalik"
+date: "Sunday, July 26, 2015"
+output: html_document
+---
+
+# Assignment
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement as “ a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+# Libraries used in the Project
+```{r warning=FALSE}
+library(randomForest)
+library(rpart)
+library(caret)
+```
+
+# Getting Data
+
+Let us first download the data from the locations specified in the assignment.
+
+After a short inspection of the files, we can see that the NA values can be represented as:
+
+- empty string
+- "NA"
+- "#DIV/0!" resulting from the inability of MS Excel to perform division as there seems to be 0 in denominator
+
+This has to be considered when loading the data:
+
+```{r}
+train.url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test.url  <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+pml.train <- read.csv('data/pml-training.csv',header=TRUE,na.strings=c("","NA","#DIV/0!"))
+pml.quiz <- read.csv('data/pml-testing.csv',header=TRUE,na.strings=c("","NA","#DIV/0!"))
+```
+
+# Data Partitioning
+
+To be able to predict the out-of-sample error let us split the training set into a training set and a test set consisting of 30% of the observations:
+
+```{r}
+set.seed(999)
+index <- createDataPartition(y=pml.train$classe,p=0.7,list=FALSE)
+pml.test <- pml.train[-index,]
+pml.train <- pml.train[index,]
+```
+
+# Missing Values
+
+Before we use any modeling techniques we should deal with our missing data as these could represent a possible problem.
+
+First of all, let us see the percentage of missing for each variable in our training set:
+
+```{r}
+getNAPercentage <- function(variable) round(sum(is.na(variable))/length(variable)*100,2)
+sapply(pml.train,getNAPercentage)[order(sapply(pml.train,getNAPercentage))]
+```
+
+If a column consists only of missings, it will not give us any useful information and it can be omitted. Regarding the rest of the variables with missing values, all of them have the rate of missings greater than 98%. This would give us less than 2% of the data for these variables to determine how they contribute to the classification. This is too little to pay for the increased model complexity, therefore we will eliminate them as well.
+
+```{r}
+vars.deleted <- colnames(pml.train[(sapply(pml.train,getNAPercentage))>=90])
+pml.train <- pml.train[(sapply(pml.train,getNAPercentage))<=90]
+# List of deleted variables
+vars.deleted
+```
+
+# Variable Selection
+
+After we have dealt with missing values, it might still be useful to omit some variables that we know a priori should not be used for classification. These are:
+
+- timestamps
+- id
+- user names
+- information on record window
+
+``` {r}
+vars.filtered.out <- c(colnames(pml.train)[grepl('timestamp|window',colnames(pml.train))],"X","user_name")
+pml.train[,vars.filtered.out] <- list(NULL)
+# Variables that were filtered out
+vars.filtered.out
+
+rownames(pml.train) <- 1:length(rownames(pml.train))
+```
+
+# Creating Data Models
+
+Now we have dealt with missing values and we only have the variables we wanted, so we are ready to produce our candidate models using two different methods:
+
+## Decision Tree
+
+Very likely this model will be less accurate than that using random forests, however if the difference is not too great, we may still choose this approach due to its interpretability.
+
+```{r}
+pml.model.tree <- rpart(classe~., data=pml.train,control=rpart.control(cp=0.01))
+```
+
+## Random Forests
+This is the most complicated model which is fit using cross-validation and a set of multiple CAR Trees.
+
+```{r}
+pml.model.rf <- randomForest(classe~., data=pml.train)
+```
+
+# Estimating out-of-sample Error
+
+We will estimate the out-of-sample error based on how the models will perform on our test data in terms of **accuracy**:
+
+```{r}
+# confusion matrix for the random forest solution
+confusionMatrix(predict(pml.model.rf,pml.test), pml.test$classe)
+# confusion matrix for the decision tree solution
+confusionMatrix(predict(pml.model.tree,pml.test,type='class'), pml.test$classe)
+```
+
+# Model Choice
+
+As we can see the random forest model achieved a very nice predicted test accuracy of more than 99%, therefore we will also use it to predict the classes of our test data:
+
+```{r}
+predict(pml.model.rf,pml.quiz)
+```
+
