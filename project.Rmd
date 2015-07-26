@@ -1,4 +1,4 @@
----
+﻿---
 title: "Practical Machine Learning Project"
 author: "Andrej Mihalik"
 date: "Sunday, July 26, 2015"
